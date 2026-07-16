@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./routes/auth.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const messageRoutes = require('./routes/message.routes');
 const { success, error: errorResponse } = require('./utils/api-response');
 
 const app = express();
@@ -28,6 +29,7 @@ app.get('/health', (req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/webhook', webhookRoutes);
+app.use('/messages', messageRoutes);
 
 app.use((req, res) => {
   return errorResponse(res, 'Route not found', 404);
