@@ -1,6 +1,7 @@
 'use strict';
 
 const { Customer, WhatsAppMessage, sequelize } = require('../models');
+const { getFlowReply } = require('./whatsapp-flow.service');
 
 const timestampToDate = (timestamp) =>
   timestamp ? new Date(Number(timestamp) * 1000) : new Date();
@@ -50,7 +51,7 @@ const saveInboundMessage = async (value, message) => {
   const { firstName, lastName } = splitName(profileName, message.from);
   const occurredAt = timestampToDate(message.timestamp);
 
-  await sequelize.transaction(async (transaction) => {
+  return sequelize.transaction(async (transaction) => {
     const [customer, created] = await Customer.findOrCreate({
       where: { mobile: message.from },
       defaults: {
@@ -85,7 +86,7 @@ const saveInboundMessage = async (value, message) => {
       });
     }
 
-    await WhatsAppMessage.findOrCreate({
+    const [, messageCreated] = await WhatsAppMessage.findOrCreate({
       where: { whatsapp_message_id: message.id },
       defaults: {
         customer_id: customer.id,
@@ -105,7 +106,66 @@ const saveInboundMessage = async (value, message) => {
       },
       transaction,
     });
+
+    return { customer, messageCreated };
   });
+};
+
+const sendTextMessage = async (value, recipient, text, customerId) => {
+  const accessToken = process.env.META_WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId =
+    value.metadata?.phone_number_id || process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+
+  if (!accessToken || !phoneNumberId) {
+    console.warn(
+      'WhatsApp reply skipped: META_WHATSAPP_ACCESS_TOKEN or '
+      + 'META_WHATSAPP_PHONE_NUMBER_ID is missing.',
+    );
+    return;
+  }
+
+  const apiVersion = process.env.META_GRAPH_API_VERSION || 'v22.0';
+  const response = await fetch(
+    `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: recipient,
+        type: 'text',
+        text: { preview_url: false, body: text },
+      }),
+    },
+  );
+
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      `Unable to send WhatsApp reply: ${result.error?.message || response.statusText}`,
+    );
+  }
+
+  const whatsappMessageId = result.messages?.[0]?.id;
+  if (whatsappMessageId) {
+    await WhatsAppMessage.findOrCreate({
+      where: { whatsapp_message_id: whatsappMessageId },
+      defaults: {
+        customer_id: customerId,
+        direction: 'OUTBOUND',
+        sender_number: value.metadata?.display_phone_number || null,
+        receiver_number: recipient,
+        message_type: 'TEXT',
+        message_text: text,
+        sent_at: new Date(),
+        webhook_payload: { response: result },
+      },
+    });
+  }
 };
 
 const updateMessageStatus = async (value, status) => {
@@ -135,7 +195,19 @@ const processWebhook = async (payload) => {
       const value = change.value || {};
 
       for (const message of value.messages || []) {
-        await saveInboundMessage(value, message);
+        console.log('WhatsApp message received:', {
+          from: message.from,
+          type: message.type,
+          text: messageText(message),
+          messageId: message.id,
+          receivedAt: timestampToDate(message.timestamp).toISOString(),
+        });
+
+        const { customer, messageCreated } = await saveInboundMessage(value, message);
+        const text = messageText(message);
+        if (messageCreated && text) {
+          await sendTextMessage(value, message.from, getFlowReply(text), customer.id);
+        }
       }
       for (const status of value.statuses || []) {
         await updateMessageStatus(value, status);
