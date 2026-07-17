@@ -39,9 +39,10 @@ const verifyWebhook = (req, res) => {
 
 const receiveWebhook = async (req, res) => {
   // if (!verifySignature(req)) return res.sendStatus(401);
-  if (req.body.object !== 'whatsapp_business_account') return res.sendStatus(404);
-
+  // if (req.body.object !== 'whatsapp_business_account') return res.sendStatus(404);
+    console.log("incoming msg");
   await processWebhook(req.body);
+
   return res.status(200).send('EVENT_RECEIVED');
 };
 
