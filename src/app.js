@@ -20,6 +20,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/health', (req, res) => {
+  console.log('Health check endpoint called');
   return success(res, 'Service is healthy', { status: 'ok' });
 });
 
