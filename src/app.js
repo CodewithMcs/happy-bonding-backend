@@ -9,12 +9,8 @@ const { success, error: errorResponse } = require('./utils/api-response');
 
 const app = express();
 
-const corsOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
-  : true;
-
 app.set('trust proxy', process.env.TRUST_PROXY === 'true');
-app.use(cors({ origin: corsOrigins, credentials: true }));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({
   limit: '1mb',
   verify: (req, res, buffer) => {
